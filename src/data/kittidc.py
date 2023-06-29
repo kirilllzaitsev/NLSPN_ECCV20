@@ -13,16 +13,16 @@
 """
 
 
-import os
-import numpy as np
 import json
+import os
 import random
-from . import BaseDataset
 
-from PIL import Image
+import numpy as np
 import torch
 import torchvision.transforms.functional as TF
+from PIL import Image
 
+from . import BaseDataset
 
 """
 KITTI Depth Completion json file has a following format:
@@ -75,8 +75,9 @@ def read_depth(file_name):
     image_depth = np.array(Image.open(file_name))
 
     # Consider empty depth
-    assert (np.max(image_depth) == 0) or (np.max(image_depth) > 255), \
-        "np.max(depth_png)={}, path={}".format(np.max(image_depth), file_name)
+    assert (np.max(image_depth) == 0) or (
+        np.max(image_depth) > 255
+    ), "np.max(depth_png)={}, path={}".format(np.max(image_depth), file_name)
 
     image_depth = image_depth.astype(np.float32) / 256.0
     return image_depth
@@ -87,9 +88,9 @@ def read_calib_file(filepath):
     """Read in a calibration file and parse into a dictionary."""
     data = {}
 
-    with open(filepath, 'r') as f:
+    with open(filepath, "r") as f:
         for line in f.readlines():
-            key, value = line.split(':', 1)
+            key, value = line.split(":", 1)
             # The only non-float values in these files are dates, which
             # we don't care about anyway
             try:
@@ -107,7 +108,7 @@ class KITTIDC(BaseDataset):
         self.args = args
         self.mode = mode
 
-        if mode != 'train' and mode != 'val' and mode != 'test':
+        if mode != "train" and mode != "val" and mode != "test":
             raise NotImplementedError
 
         self.height = args.patch_height
@@ -125,16 +126,19 @@ class KITTIDC(BaseDataset):
     def __getitem__(self, idx):
         rgb, depth, gt, K = self._load_data(idx)
 
-        if self.augment and self.mode == 'train':
+        if self.augment and self.mode == "train":
             # Top crop if needed
             if self.args.top_crop > 0:
                 width, height = rgb.size
-                rgb = TF.crop(rgb, self.args.top_crop, 0,
-                              height - self.args.top_crop, width)
-                depth = TF.crop(depth, self.args.top_crop, 0,
-                                height - self.args.top_crop, width)
-                gt = TF.crop(gt, self.args.top_crop, 0,
-                             height - self.args.top_crop, width)
+                rgb = TF.crop(
+                    rgb, self.args.top_crop, 0, height - self.args.top_crop, width
+                )
+                depth = TF.crop(
+                    depth, self.args.top_crop, 0, height - self.args.top_crop, width
+                )
+                gt = TF.crop(
+                    gt, self.args.top_crop, 0, height - self.args.top_crop, width
+                )
                 K[3] = K[3] - self.args.top_crop
 
             width, height = rgb.size
@@ -178,8 +182,9 @@ class KITTIDC(BaseDataset):
             # Crop
             width, height = rgb.size
 
-            assert self.height <= height and self.width <= width, \
-                "patch size is larger than the input size"
+            assert (
+                self.height <= height and self.width <= width
+            ), "patch size is larger than the input size"
 
             h_start = random.randint(0, height - self.height)
             w_start = random.randint(0, width - self.width)
@@ -192,31 +197,36 @@ class KITTIDC(BaseDataset):
             K[3] = K[3] - h_start
 
             rgb = TF.to_tensor(rgb)
-            rgb = TF.normalize(rgb, (0.485, 0.456, 0.406),
-                               (0.229, 0.224, 0.225), inplace=True)
+            rgb = TF.normalize(
+                rgb, (0.485, 0.456, 0.406), (0.229, 0.224, 0.225), inplace=True
+            )
 
             depth = TF.to_tensor(np.array(depth))
             depth = depth / _scale
 
             gt = TF.to_tensor(np.array(gt))
             gt = gt / _scale
-        elif self.mode in ['train', 'val']:
+        elif self.mode in ["train", "val"]:
             # Top crop if needed
             if self.args.top_crop > 0:
                 width, height = rgb.size
-                rgb = TF.crop(rgb, self.args.top_crop, 0,
-                              height - self.args.top_crop, width)
-                depth = TF.crop(depth, self.args.top_crop, 0,
-                                height - self.args.top_crop, width)
-                gt = TF.crop(gt, self.args.top_crop, 0,
-                             height - self.args.top_crop, width)
+                rgb = TF.crop(
+                    rgb, self.args.top_crop, 0, height - self.args.top_crop, width
+                )
+                depth = TF.crop(
+                    depth, self.args.top_crop, 0, height - self.args.top_crop, width
+                )
+                gt = TF.crop(
+                    gt, self.args.top_crop, 0, height - self.args.top_crop, width
+                )
                 K[3] = K[3] - self.args.top_crop
 
             # Crop
             width, height = rgb.size
 
-            assert self.height <= height and self.width <= width, \
-                "patch size is larger than the input size"
+            assert (
+                self.height <= height and self.width <= width
+            ), "patch size is larger than the input size"
 
             h_start = random.randint(0, height - self.height)
             w_start = random.randint(0, width - self.width)
@@ -229,8 +239,9 @@ class KITTIDC(BaseDataset):
             K[3] = K[3] - h_start
 
             rgb = TF.to_tensor(rgb)
-            rgb = TF.normalize(rgb, (0.485, 0.456, 0.406),
-                               (0.229, 0.224, 0.225), inplace=True)
+            rgb = TF.normalize(
+                rgb, (0.485, 0.456, 0.406), (0.229, 0.224, 0.225), inplace=True
+            )
 
             depth = TF.to_tensor(np.array(depth))
 
@@ -238,17 +249,21 @@ class KITTIDC(BaseDataset):
         else:
             if self.args.top_crop > 0 and self.args.test_crop:
                 width, height = rgb.size
-                rgb = TF.crop(rgb, self.args.top_crop, 0,
-                              height - self.args.top_crop, width)
-                depth = TF.crop(depth, self.args.top_crop, 0,
-                                height - self.args.top_crop, width)
-                gt = TF.crop(gt, self.args.top_crop, 0,
-                             height - self.args.top_crop, width)
+                rgb = TF.crop(
+                    rgb, self.args.top_crop, 0, height - self.args.top_crop, width
+                )
+                depth = TF.crop(
+                    depth, self.args.top_crop, 0, height - self.args.top_crop, width
+                )
+                gt = TF.crop(
+                    gt, self.args.top_crop, 0, height - self.args.top_crop, width
+                )
                 K[3] = K[3] - self.args.top_crop
 
             rgb = TF.to_tensor(rgb)
-            rgb = TF.normalize(rgb, (0.485, 0.456, 0.406),
-                               (0.229, 0.224, 0.225), inplace=True)
+            rgb = TF.normalize(
+                rgb, (0.485, 0.456, 0.406), (0.229, 0.224, 0.225), inplace=True
+            )
 
             depth = TF.to_tensor(np.array(depth))
 
@@ -257,40 +272,35 @@ class KITTIDC(BaseDataset):
         if self.args.num_sample > 0:
             depth = self.get_sparse_depth(depth, self.args.num_sample)
 
-        output = {'rgb': rgb, 'dep': depth, 'gt': gt, 'K': torch.Tensor(K)}
+        output = {"rgb": rgb, "dep": depth, "gt": gt, "K": torch.Tensor(K)}
 
         return output
 
     def _load_data(self, idx):
-        path_rgb = os.path.join(self.args.dir_data,
-                                self.sample_list[idx]['rgb'])
-        path_depth = os.path.join(self.args.dir_data,
-                                  self.sample_list[idx]['depth'])
-        path_gt = os.path.join(self.args.dir_data,
-                               self.sample_list[idx]['gt'])
-        path_calib = os.path.join(self.args.dir_data,
-                                  self.sample_list[idx]['K'])
+        path_rgb = os.path.join(self.args.dir_data, self.sample_list[idx]["rgb"])
+        path_depth = os.path.join(self.args.dir_data, self.sample_list[idx]["depth"])
+        path_gt = os.path.join(self.args.dir_data, self.sample_list[idx]["gt"])
+        path_calib = os.path.join(self.args.dir_data, self.sample_list[idx]["K"])
 
         depth = read_depth(path_depth)
         gt = read_depth(path_gt)
 
         rgb = Image.open(path_rgb)
-        depth = Image.fromarray(depth.astype('float32'), mode='F')
-        gt = Image.fromarray(gt.astype('float32'), mode='F')
+        depth = Image.fromarray(depth.astype("float32"), mode="F")
+        gt = Image.fromarray(gt.astype("float32"), mode="F")
 
-        if self.mode in ['train', 'val']:
+        if self.mode in ["train", "val"]:
             calib = read_calib_file(path_calib)
-            if 'image_02' in path_rgb:
-                K_cam = np.reshape(calib['P_rect_02'], (3, 4))
-            elif 'image_03' in path_rgb:
-                K_cam = np.reshape(calib['P_rect_03'], (3, 4))
+            if "image_02" in path_rgb:
+                K_cam = np.reshape(calib["P_rect_02"], (3, 4))
+            elif "image_03" in path_rgb:
+                K_cam = np.reshape(calib["P_rect_03"], (3, 4))
             K = [K_cam[0, 0], K_cam[1, 1], K_cam[0, 2], K_cam[1, 2]]
         else:
-            f_calib = open(path_calib, 'r')
-            K_cam = f_calib.readline().split(' ')
+            f_calib = open(path_calib, "r")
+            K_cam = f_calib.readline().split(" ")
             f_calib.close()
-            K = [float(K_cam[0]), float(K_cam[4]), float(K_cam[2]),
-                 float(K_cam[5])]
+            K = [float(K_cam[0]), float(K_cam[4]), float(K_cam[2]), float(K_cam[5])]
 
         w1, h1 = rgb.size
         w2, h2 = depth.size
@@ -312,10 +322,104 @@ class KITTIDC(BaseDataset):
 
         idx_nnz = idx_nnz[idx_sample[:]]
 
-        mask = torch.zeros((channel*height*width))
+        mask = torch.zeros((channel * height * width))
         mask[idx_nnz] = 1.0
         mask = mask.view((channel, height, width))
 
         dep_sp = dep * mask.type_as(dep)
 
         return dep_sp
+
+
+class CustomKITTIDC(KITTIDC):
+    def __init__(self, args, mode):
+        super(CustomKITTIDC, self).__init__(args, mode)
+
+        self.args = args
+        self.mode = mode
+
+        if mode != "train" and mode != "val" and mode != "test":
+            raise NotImplementedError
+
+        self.height = args.patch_height
+        self.width = args.patch_width
+
+        self.augment = self.args.augment
+
+        self.sample_list = []
+
+        self.image_paths = args.image_paths
+        self.sparse_depth_paths = args.sparse_depth_paths
+        self.intrinsics_paths = args.intrinsics_paths
+        self.ground_truth_paths = (args.ground_truth_paths if args.ground_truth_paths is not None
+            else args.sparse_depth_paths)
+        self.paths = self.get_input_paths()
+        self.K = self.load_intrinsic_calibration_matrix()
+
+    def load_intrinsic_calibration_matrix(
+        self,
+    ):
+        """As intrinsics is used to estimate [R|t], could get it at __getitem__ based on index, if
+        there are multiple items in the intrinsics_paths."""
+        return np.load(self.intrinsics_paths[0]).astype(np.float32)
+
+    def validate_paths(self):
+        assert len(self.image_paths) == len(self.sparse_depth_paths)
+        if self.ground_truth_paths is not None:
+            assert len(self.image_paths) == len(self.ground_truth_paths)
+
+    def get_input_paths(
+        self,
+    ):
+        gt_paths = (
+            self.ground_truth_paths
+            if self.ground_truth_paths is not None
+            else self.sparse_depth_paths
+        )
+        return {
+            "rgb": self.image_paths,
+            "depth": self.sparse_depth_paths,
+            "gt": gt_paths,
+        }
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def _load_data(self, idx):
+        # path_rgb = os.path.join(self.args.dir_data, self.sample_list[idx]["rgb"])
+        # path_depth = os.path.join(self.args.dir_data, self.sample_list[idx]["depth"])
+        # path_gt = os.path.join(self.args.dir_data, self.sample_list[idx]["gt"])
+        # path_calib = os.path.join(self.args.dir_data, self.sample_list[idx]["K"])
+        path_rgb = self.image_paths[idx]
+        path_depth = self.sparse_depth_paths[idx]
+        path_calib = self.intrinsics_paths[idx]
+        path_gt = self.ground_truth_paths[idx]
+
+        depth = read_depth(path_depth)
+        gt = read_depth(path_gt)
+
+        rgb = Image.open(path_rgb)
+        depth = Image.fromarray(depth.astype("float32"), mode="F")
+        gt = Image.fromarray(gt.astype("float32"), mode="F")
+
+        K = self.load_intrinsic_calibration_matrix()
+        # if self.mode in ["train", "val"]:
+        #     calib = read_calib_file(path_calib)
+        #     if "image_02" in path_rgb:
+        #         K_cam = np.reshape(calib["P_rect_02"], (3, 4))
+        #     elif "image_03" in path_rgb:
+        #         K_cam = np.reshape(calib["P_rect_03"], (3, 4))
+        #     K = [K_cam[0, 0], K_cam[1, 1], K_cam[0, 2], K_cam[1, 2]]
+        # else:
+        #     f_calib = open(path_calib, "r")
+        #     K_cam = f_calib.readline().split(" ")
+        #     f_calib.close()
+        #     K = [float(K_cam[0]), float(K_cam[4]), float(K_cam[2]), float(K_cam[5])]
+
+        w1, h1 = rgb.size
+        w2, h2 = depth.size
+        w3, h3 = gt.size
+
+        assert w1 == w2 and w1 == w3 and h1 == h2 and h1 == h3
+
+        return rgb, depth, gt, K

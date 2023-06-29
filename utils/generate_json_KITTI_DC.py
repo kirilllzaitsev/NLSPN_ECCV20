@@ -20,8 +20,8 @@ import json
 parser = argparse.ArgumentParser(
     description="KITTI Depth Completion jason generator")
 
-parser.add_argument('--path_root', type=str, required=True,
-                    help="Path to the KITTI Depth Completion dataset")
+parser.add_argument('--path_root', type=str, required=False,
+                    help="Path to the KITTI Depth Completion dataset", default="/media/master/text/cv_data/code_that_needs_cv_data/nlspn/nlspn")
 
 parser.add_argument('--path_out', type=str, required=False,
                     default='../data_json', help="Output path")

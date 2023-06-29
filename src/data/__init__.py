@@ -18,7 +18,8 @@ from torch.utils.data import Dataset
 
 def get(args):
     data_name = args.data_name
-    module_name = 'data.' + data_name.lower()
+    data_module_name = "kittidc"
+    module_name = 'data.' + data_module_name.lower()
     module = import_module(module_name)
 
     return getattr(module, data_name)

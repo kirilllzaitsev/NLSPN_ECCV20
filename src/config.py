@@ -30,7 +30,7 @@ parser.add_argument('--data_name',
                     type=str,
                     default='NYU',
                     # default='KITTIDC',
-                    choices=('NYU', 'KITTIDC'),
+                    # choices=('NYU', 'KITTIDC'),
                     help='dataset name')
 parser.add_argument('--split_json',
                     type=str,
@@ -69,7 +69,7 @@ parser.add_argument('--port',
                     help='multiprocessing port')
 parser.add_argument('--num_threads',
                     type=int,
-                    default=1,
+                    default=0,
                     help='number of threads')
 parser.add_argument('--no_multiprocessing',
                     action='store_true',

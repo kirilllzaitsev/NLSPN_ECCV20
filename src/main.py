@@ -13,37 +13,42 @@
 """
 
 
-from config import args as args_config
-import time
-import random
 import os
+import random
+import time
+
+from config import args as args_config
+
 os.environ["CUDA_VISIBLE_DEVICES"] = args_config.gpus
-os.environ["MASTER_ADDR"] = 'localhost'
+os.environ["MASTER_ADDR"] = "localhost"
 os.environ["MASTER_PORT"] = args_config.port
 
 import json
+
 import numpy as np
-from tqdm import tqdm
-
 import torch
-from torch import nn
-from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
-
-import utility
-from model import get as get_model
-from data import get as get_data
-from loss import get as get_loss
-from summary import get as get_summary
-from metric import get as get_metric
+import torch.distributed as dist
 
 # Multi-GPU and Mixed precision supports
 # NOTE : Only 1 process per GPU is supported now
 import torch.multiprocessing as mp
-import torch.distributed as dist
-import apex
-from apex.parallel import DistributedDataParallel as DDP
-from apex import amp
+import utility
+from data import get as get_data
+from loss import get as get_loss
+from metric import get as get_metric
+from model import get as get_model
+from summary import get as get_summary
+from torch import nn
+
+# import apex
+# from apex.parallel import DistributedDataParallel as DDP
+# from apex import amp
+# from torch import amp
+from torch.cuda import amp
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+from tqdm import tqdm
 
 # Minimize randomness
 torch.manual_seed(args_config.seed)
@@ -54,21 +59,24 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 
+device: torch.device = (
+    torch.device("cpu") if args_config.num_gpus < 1 else torch.device("cuda:0")
+)
+
+
 def check_args(args):
     if args.batch_size < args.num_gpus:
-        print("batch_size changed : {} -> {}".format(args.batch_size,
-                                                     args.num_gpus))
+        print("batch_size changed : {} -> {}".format(args.batch_size, args.num_gpus))
         args.batch_size = args.num_gpus
 
     new_args = args
     if args.pretrain is not None:
-        assert os.path.exists(args.pretrain), \
-            "file not found: {}".format(args.pretrain)
+        assert os.path.exists(args.pretrain), "file not found: {}".format(args.pretrain)
 
         if args.resume:
             checkpoint = torch.load(args.pretrain)
 
-            new_args = checkpoint['args']
+            new_args = checkpoint["args"]
             new_args.test_only = args.test_only
             new_args.pretrain = args.pretrain
             new_args.dir_data = args.dir_data
@@ -80,31 +88,40 @@ def check_args(args):
 def train(gpu, args):
     # Initialize workers
     # NOTE : the worker with gpu=0 will do logging
-    dist.init_process_group(backend='nccl', init_method='env://',
-                            world_size=args.num_gpus, rank=gpu)
+    dist.init_process_group(
+        backend="nccl", init_method="env://", world_size=args.num_gpus, rank=gpu
+    )
     torch.cuda.set_device(gpu)
 
     # Prepare dataset
     data = get_data(args)
 
-    data_train = data(args, 'train')
-    data_val = data(args, 'val')
+    data_train = data(args, "train")
+    data_val = data(args, "val")
 
-    sampler_train = DistributedSampler(
-        data_train, num_replicas=args.num_gpus, rank=gpu)
-    sampler_val = DistributedSampler(
-        data_val, num_replicas=args.num_gpus, rank=gpu)
+    sampler_train = DistributedSampler(data_train, num_replicas=args.num_gpus, rank=gpu)
+    sampler_val = DistributedSampler(data_val, num_replicas=args.num_gpus, rank=gpu)
 
     batch_size = args.batch_size // args.num_gpus
 
     loader_train = DataLoader(
-        dataset=data_train, batch_size=batch_size, shuffle=False,
-        num_workers=args.num_threads, pin_memory=True, sampler=sampler_train,
-        drop_last=True)
+        dataset=data_train,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=args.num_threads,
+        pin_memory=True,
+        sampler=sampler_train,
+        drop_last=True,
+    )
     loader_val = DataLoader(
-        dataset=data_val, batch_size=1, shuffle=False,
-        num_workers=args.num_threads, pin_memory=True, sampler=sampler_val,
-        drop_last=False)
+        dataset=data_val,
+        batch_size=1,
+        shuffle=False,
+        num_workers=args.num_threads,
+        pin_memory=True,
+        sampler=sampler_val,
+        drop_last=False,
+    )
 
     # Network
     model = get_model(args)
@@ -113,13 +130,14 @@ def train(gpu, args):
 
     if gpu == 0:
         if args.pretrain is not None:
-            assert os.path.exists(args.pretrain), \
-                "file not found: {}".format(args.pretrain)
+            assert os.path.exists(args.pretrain), "file not found: {}".format(
+                args.pretrain
+            )
 
             checkpoint = torch.load(args.pretrain)
-            net.load_state_dict(checkpoint['net'])
+            net.load_state_dict(checkpoint["net"])
 
-            print('Load network parameters from : {}'.format(args.pretrain))
+            print("Load network parameters from : {}".format(args.pretrain))
 
     # Loss
     loss = get_loss(args)
@@ -129,23 +147,27 @@ def train(gpu, args):
     # Optimizer
     optimizer, scheduler = utility.make_optimizer_scheduler(args, net)
 
-    net = apex.parallel.convert_syncbn_model(net)
-    net, optimizer = amp.initialize(net, optimizer, opt_level=args.opt_level,
-                                    verbosity=0)
+    # net = apex.parallel.convert_syncbn_model(net)
+    # net, optimizer = amp.initialize(net, optimizer, opt_level=args.opt_level,
+    #                                 verbosity=0)
 
     if gpu == 0:
         if args.pretrain is not None:
             if args.resume:
                 try:
-                    optimizer.load_state_dict(checkpoint['optimizer'])
-                    scheduler.load_state_dict(checkpoint['scheduler'])
-                    amp.load_state_dict(checkpoint['amp'])
+                    optimizer.load_state_dict(checkpoint["optimizer"])
+                    scheduler.load_state_dict(checkpoint["scheduler"])
+                    amp.load_state_dict(checkpoint["amp"])
 
-                    print('Resume optimizer, scheduler and amp '
-                          'from : {}'.format(args.pretrain))
+                    print(
+                        "Resume optimizer, scheduler and amp "
+                        "from : {}".format(args.pretrain)
+                    )
                 except KeyError:
-                    print('State dicts for resume are not saved. '
-                          'Use --save_full argument')
+                    print(
+                        "State dicts for resume are not saved. "
+                        "Use --save_full argument"
+                    )
 
             del checkpoint
 
@@ -156,43 +178,47 @@ def train(gpu, args):
     summary = get_summary(args)
 
     if gpu == 0:
-        utility.backup_source_code(args.save_dir + '/code')
+        utility.backup_source_code(args.save_dir + "/code")
         try:
             os.makedirs(args.save_dir, exist_ok=True)
-            os.makedirs(args.save_dir + '/train', exist_ok=True)
-            os.makedirs(args.save_dir + '/val', exist_ok=True)
+            os.makedirs(args.save_dir + "/train", exist_ok=True)
+            os.makedirs(args.save_dir + "/val", exist_ok=True)
         except OSError:
             pass
 
     if gpu == 0:
-        writer_train = summary(args.save_dir, 'train', args,
-                               loss.loss_name, metric.metric_name)
-        writer_val = summary(args.save_dir, 'val', args,
-                             loss.loss_name, metric.metric_name)
+        writer_train = summary(
+            args.save_dir, "train", args, loss.loss_name, metric.metric_name
+        )
+        writer_val = summary(
+            args.save_dir, "val", args, loss.loss_name, metric.metric_name
+        )
 
-        with open(args.save_dir + '/args.json', 'w') as args_json:
+        with open(args.save_dir + "/args.json", "w") as args_json:
             json.dump(args.__dict__, args_json, indent=4)
 
     if args.warm_up:
         warm_up_cnt = 0.0
-        warm_up_max_cnt = len(loader_train)+1.0
+        warm_up_max_cnt = len(loader_train) + 1.0
 
-    for epoch in range(1, args.epochs+1):
+    for epoch in range(1, args.epochs + 1):
         # Train
         net.train()
 
         sampler_train.set_epoch(epoch)
 
         if gpu == 0:
-            current_time = time.strftime('%y%m%d@%H:%M:%S')
+            current_time = time.strftime("%y%m%d@%H:%M:%S")
 
             list_lr = []
             for g in optimizer.param_groups:
-                list_lr.append(g['lr'])
+                list_lr.append(g["lr"])
 
-            print('=== Epoch {:5d} / {:5d} | Lr : {} | {} | {} ==='.format(
-                epoch, args.epochs, list_lr, current_time, args.save_dir
-            ))
+            print(
+                "=== Epoch {:5d} / {:5d} | Lr : {} | {} | {} ===".format(
+                    epoch, args.epochs, list_lr, current_time, args.save_dir
+                )
+            )
 
         num_sample = len(loader_train) * loader_train.batch_size * args.num_gpus
 
@@ -202,16 +228,18 @@ def train(gpu, args):
             log_loss = 0.0
 
         for batch, sample in enumerate(loader_train):
-            sample = {key: val.cuda(gpu) for key, val in sample.items()
-                      if val is not None}
+            sample = {
+                key: val.cuda(gpu) for key, val in sample.items() if val is not None
+            }
 
             if epoch == 1 and args.warm_up:
                 warm_up_cnt += 1
 
                 for param_group in optimizer.param_groups:
-                    lr_warm_up = param_group['initial_lr'] \
-                                 * warm_up_cnt / warm_up_max_cnt
-                    param_group['lr'] = lr_warm_up
+                    lr_warm_up = (
+                        param_group["initial_lr"] * warm_up_cnt / warm_up_max_cnt
+                    )
+                    param_group["lr"] = lr_warm_up
 
             optimizer.zero_grad()
 
@@ -229,22 +257,22 @@ def train(gpu, args):
             optimizer.step()
 
             if gpu == 0:
-                metric_val = metric.evaluate(sample, output, 'train')
+                metric_val = metric.evaluate(sample, output, "train")
                 writer_train.add(loss_val, metric_val)
 
                 log_cnt += 1
                 log_loss += loss_sum.item()
 
-                current_time = time.strftime('%y%m%d@%H:%M:%S')
-                error_str = '{:<10s}| {} | Loss = {:.4f}'.format(
-                    'Train', current_time, log_loss / log_cnt)
+                current_time = time.strftime("%y%m%d@%H:%M:%S")
+                error_str = "{:<10s}| {} | Loss = {:.4f}".format(
+                    "Train", current_time, log_loss / log_cnt
+                )
 
                 if epoch == 1 and args.warm_up:
                     list_lr = []
                     for g in optimizer.param_groups:
-                        list_lr.append(round(g['lr'], 6))
-                    error_str = '{} | Lr Warm Up : {}'.format(error_str,
-                                                              list_lr)
+                        list_lr.append(round(g["lr"], 6))
+                    error_str = "{} | Lr Warm Up : {}".format(error_str, list_lr)
 
                 pbar.set_description(error_str)
                 pbar.update(loader_train.batch_size * args.num_gpus)
@@ -256,19 +284,16 @@ def train(gpu, args):
 
             if args.save_full or epoch == args.epochs:
                 state = {
-                    'net': net.module.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'scheduler': scheduler.state_dict(),
-                    'amp': amp.state_dict(),
-                    'args': args
+                    "net": net.module.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                    "amp": amp.state_dict(),
+                    "args": args,
                 }
             else:
-                state = {
-                    'net': net.module.state_dict(),
-                    'args': args
-                }
+                state = {"net": net.module.state_dict(), "args": args}
 
-            torch.save(state, '{}/model_{:05d}.pt'.format(args.save_dir, epoch))
+            torch.save(state, "{}/model_{:05d}.pt".format(args.save_dir, epoch))
 
         # Val
         torch.set_grad_enabled(False)
@@ -282,8 +307,9 @@ def train(gpu, args):
             log_loss = 0.0
 
         for batch, sample in enumerate(loader_val):
-            sample = {key: val.cuda(gpu) for key, val in sample.items()
-                      if val is not None}
+            sample = {
+                key: val.cuda(gpu) for key, val in sample.items() if val is not None
+            }
 
             output = net(sample)
 
@@ -294,15 +320,16 @@ def train(gpu, args):
             loss_val = loss_val / loader_val.batch_size
 
             if gpu == 0:
-                metric_val = metric.evaluate(sample, output, 'train')
+                metric_val = metric.evaluate(sample, output, "train")
                 writer_val.add(loss_val, metric_val)
 
                 log_cnt += 1
                 log_loss += loss_sum.item()
 
-                current_time = time.strftime('%y%m%d@%H:%M:%S')
-                error_str = '{:<10s}| {} | Loss = {:.4f}'.format(
-                    'Val', current_time, log_loss / log_cnt)
+                current_time = time.strftime("%y%m%d@%H:%M:%S")
+                error_str = "{:<10s}| {} | Loss = {:.4f}".format(
+                    "Val", current_time, log_loss / log_cnt
+                )
                 pbar.set_description(error_str)
                 pbar.update(loader_val.batch_size * args.num_gpus)
 
@@ -310,7 +337,7 @@ def train(gpu, args):
             pbar.close()
 
             writer_val.update(epoch, sample, output)
-            print('')
+            print("")
 
             writer_val.save(epoch, batch, sample, output)
 
@@ -323,29 +350,32 @@ def test(args):
     # Prepare dataset
     data = get_data(args)
 
-    data_test = data(args, 'test')
+    data_test = data(args, "test")
 
-    loader_test = DataLoader(dataset=data_test, batch_size=1,
-                             shuffle=False, num_workers=args.num_threads)
+    # import torch.utils.data
+    # data_test = torch.utils.data.Subset(data_test, range(0, 2))
+
+    loader_test = DataLoader(
+        dataset=data_test, batch_size=1, shuffle=False, num_workers=args.num_threads
+    )
 
     # Network
     model = get_model(args)
     net = model(args)
-    net.cuda()
+    net.to(device)
 
     if args.pretrain is not None:
-        assert os.path.exists(args.pretrain), \
-            "file not found: {}".format(args.pretrain)
+        assert os.path.exists(args.pretrain), "file not found: {}".format(args.pretrain)
 
-        checkpoint = torch.load(args.pretrain)
-        key_m, key_u = net.load_state_dict(checkpoint['net'], strict=False)
+        checkpoint = torch.load(args.pretrain, map_location=device)
+        key_m, key_u = net.load_state_dict(checkpoint["net"], strict=False)
 
         if key_u:
-            print('Unexpected keys :')
+            print("Unexpected keys :")
             print(key_u)
 
         if key_m:
-            print('Missing keys :')
+            print("Missing keys :")
             print(key_m)
             raise KeyError
 
@@ -357,31 +387,30 @@ def test(args):
 
     try:
         os.makedirs(args.save_dir, exist_ok=True)
-        os.makedirs(args.save_dir + '/test', exist_ok=True)
+        os.makedirs(args.save_dir + "/test", exist_ok=True)
     except OSError:
         pass
 
-    writer_test = summary(args.save_dir, 'test', args, None, metric.metric_name)
+    writer_test = summary(args.save_dir, "test", args, None, metric.metric_name)
 
     net.eval()
 
-    num_sample = len(loader_test)*loader_test.batch_size
+    num_sample = len(loader_test) * loader_test.batch_size
 
     pbar = tqdm(total=num_sample)
 
     t_total = 0
 
     for batch, sample in enumerate(loader_test):
-        sample = {key: val.cuda() for key, val in sample.items()
-                  if val is not None}
+        sample = {key: val.to(device) for key, val in sample.items() if val is not None}
 
         t0 = time.time()
         output = net(sample)
         t1 = time.time()
 
-        t_total += (t1 - t0)
+        t_total += t1 - t0
 
-        metric_val = metric.evaluate(sample, output, 'train')
+        metric_val = metric.evaluate(sample, output, "train")
 
         writer_test.add(None, metric_val)
 
@@ -389,8 +418,8 @@ def test(args):
         if args.save_image:
             writer_test.save(args.epochs, batch, sample, output)
 
-        current_time = time.strftime('%y%m%d@%H:%M:%S')
-        error_str = '{} | Test'.format(current_time)
+        current_time = time.strftime("%y%m%d@%H:%M:%S")
+        error_str = "{} | Test".format(current_time)
         pbar.set_description(error_str)
         pbar.update(loader_test.batch_size)
 
@@ -399,8 +428,10 @@ def test(args):
     writer_test.update(args.epochs, sample, output)
 
     t_avg = t_total / num_sample
-    print('Elapsed time : {} sec, '
-          'Average processing time : {} sec'.format(t_total, t_avg))
+    print(
+        "Elapsed time : {} sec, "
+        "Average processing time : {} sec".format(t_total, t_avg)
+    )
 
 
 def main(args):
@@ -410,33 +441,48 @@ def main(args):
         else:
             assert args.num_gpus > 0
 
-            spawn_context = mp.spawn(train, nprocs=args.num_gpus, args=(args,),
-                                     join=False)
+            with amp.autocast():
+                spawn_context = mp.spawn(
+                    train, nprocs=args.num_gpus, args=(args,), join=False
+                )
 
-            while not spawn_context.join():
-                pass
+                while not spawn_context.join():
+                    pass
 
-            for process in spawn_context.processes:
-                if process.is_alive():
-                    process.terminate()
-                process.join()
+                for process in spawn_context.processes:
+                    if process.is_alive():
+                        process.terminate()
+                    process.join()
 
-            args.pretrain = '{}/model_{:05d}.pt'.format(args.save_dir,
-                                                        args.epochs)
+                args.pretrain = "{}/model_{:05d}.pt".format(args.save_dir, args.epochs)
 
     test(args)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     args_main = check_args(args_config)
 
-    print('\n\n=== Arguments ===')
+    print("\n\n=== Arguments ===")
     cnt = 0
     for key in sorted(vars(args_main)):
-        print(key, ':',  getattr(args_main, key), end='  |  ')
+        print(key, ":", getattr(args_main, key), end="  |  ")
         cnt += 1
         if (cnt + 1) % 5 == 0:
-            print('')
-    print('\n')
+            print("")
+    print("\n")
+
+    from cluster_tools import data_utils
+    from cluster_tools.meta import BenchmarkingConfig
+
+    args_main.image_paths = data_utils.read_paths(
+        f"{BenchmarkingConfig.custom_data_root_dir}/paths/image.txt"
+    )
+    args_main.intrinsics_paths = data_utils.read_paths(
+        f"{BenchmarkingConfig.custom_data_root_dir}/paths/intrinsics.txt"
+    )
+    args_main.sparse_depth_paths = data_utils.read_paths(
+        f"{BenchmarkingConfig.custom_data_root_dir}/paths/sparse_depth.txt"
+    )
+    args_main.ground_truth_paths = None
 
     main(args_main)
