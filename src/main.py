@@ -477,7 +477,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "--dataset-paths-dir",
+        `"--dataset-paths-dir"`,
         help="path to a folder containing txt files with paths to images (e.g., image.txt), intrinsics, sparse depth and ground truth",
     )
     args_aux, _ = parser.parse_known_args()
