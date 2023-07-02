@@ -13,6 +13,7 @@
 """
 
 
+import argparse
 import os
 import random
 import time
@@ -471,17 +472,24 @@ if __name__ == "__main__":
             print("")
     print("\n")
 
-    from cluster_tools import data_utils
-    from cluster_tools.meta import BenchmarkingConfig
+    from kbnet import data_utils
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--dataset-paths-dir",
+        help="path to a folder containing txt files with paths to images (e.g., image.txt), intrinsics, sparse depth and ground truth",
+    )
+    args_aux, _ = parser.parse_known_args()
 
     args_main.image_paths = data_utils.read_paths(
-        f"{BenchmarkingConfig.custom_data_root_dir}/paths/image.txt"
+        f"{args_aux.dataset_paths_dir}/paths/image.txt"
     )
     args_main.intrinsics_paths = data_utils.read_paths(
-        f"{BenchmarkingConfig.custom_data_root_dir}/paths/intrinsics.txt"
+        f"{args_aux.dataset_paths_dir}/paths/intrinsics.txt"
     )
     args_main.sparse_depth_paths = data_utils.read_paths(
-        f"{BenchmarkingConfig.custom_data_root_dir}/paths/sparse_depth.txt"
+        f"{args_aux.dataset_paths_dir}/paths/sparse_depth.txt"
     )
     args_main.ground_truth_paths = None
 
